@@ -1,0 +1,70 @@
+name: Go Test workflow
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: 1.24
+
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: /go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/*.go') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Install dependencies
+      run: go mod download
+
+    - name: Build
+      run: go build -v ./...
+
+    - name: Test
+      run: go test -v ./...
+    
+  test-migrations:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: testdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install migrate
+      run: |
+        curl -L https://github.com/golang-migrate/migrate/releases/download/v4.19.0/migrate.linux-amd64.tar.gz | tar xvz
+        sudo mv migrate /usr/local/bin/migrate
+
+    - name: Run migrations up
+      run: |
+        migrate -path ./app/database/migrations -database "postgresql://postgres:postgres@localhost:5432/testdb?sslmode=disable" up
+
+    - name: Run migrations down
+      run: |
+        migrate -path ./app/database/migrations -database "postgresql://postgres:postgres@localhost:5432/testdb?sslmode=disable" down -all
